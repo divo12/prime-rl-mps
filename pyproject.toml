@@ -95,7 +95,7 @@ kernels = [
 # Builds a native extension from source on first install; requires Xcode CLT.
 # Serve with VLLM_METAL_BUILD_FROM_SOURCE=1 (compiles Metal shaders in-process).
 metal = [
-    "vllm-metal @ git+https://github.com/divo12/vllm-metal@211a1e4 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "vllm-metal @ git+https://github.com/divo12/vllm-metal@70445f1 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 all = [
     "prime-rl[flash-attn]",

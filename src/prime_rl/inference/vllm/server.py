@@ -84,6 +84,9 @@ async def resume(request: Request):
 async def update_weights(request: Request):
     data = await request.json()
     await engine_client(request).collective_rpc("update_weights_from_path", args=(data.get("weight_dir"),))
+    # KV entries computed under the previous weights are stale for the new
+    # policy — drop cached prefixes so post-update generations never reuse them.
+    await engine_client(request).reset_prefix_cache()
     return {"status": "ok"}
 
 
@@ -183,6 +186,7 @@ async def custom_init_app_state(
 
 import vllm.entrypoints.openai.api_server
 import vllm.v1.utils
+from vllm.platforms import current_platform
 from vllm.entrypoints.openai.api_server import build_app as _original_build_app
 from vllm.v1.utils import run_api_server_worker_proc as _original_run_api_server_worker_proc
 
@@ -233,8 +237,16 @@ def server(config: InferenceConfig):
     assert args is not None
     validate_parsed_serve_args(args)
 
-    # Set the worker extension class based on the broadcast backend
-    args.worker_extension_cls = WORKER_EXTENSION_CLS[config.weight_broadcast.type]
+    # Set the worker extension class based on the broadcast backend.
+    # The Metal worker implements the weight-update RPCs natively; grafting a
+    # torch-based extension would shadow them and fail on MLX models.
+    if type(current_platform).__module__.startswith("vllm_metal"):
+        assert config.weight_broadcast.type == "filesystem", (
+            "Metal inference only supports the filesystem weight broadcast"
+        )
+        args.worker_extension_cls = ""
+    else:
+        args.worker_extension_cls = WORKER_EXTENSION_CLS[config.weight_broadcast.type]
 
     if args.headless or args.api_server_count < 1:
         run_headless(args)
