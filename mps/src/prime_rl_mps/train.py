@@ -36,6 +36,8 @@ class MPSConfig(BaseModel):
     top_p: float = Field(1.0, gt=0, le=1)
     learning_rate: float = Field(1e-5, gt=0)
     max_grad_norm: float = Field(1.0, gt=0)
+    ppo_epochs: int = Field(2, ge=1)
+    clip_epsilon: float = Field(0.2, gt=0)
     dtype: Literal["float16", "bfloat16", "float32"] = "float16"
     lora_rank: int = Field(8, ge=0)
     lora_alpha: int = Field(16, ge=1)
@@ -52,12 +54,68 @@ class Rollout:
     reward: float
 
 
+@dataclass
+class TrainingBatch:
+    sequences: torch.Tensor
+    completion_mask: torch.Tensor
+
+
 def group_advantages(rewards: list[float]) -> list[float]:
     values = torch.tensor(rewards, dtype=torch.float32)
     std = values.std(unbiased=False)
     if std == 0:
         return [0.0] * len(rewards)
     return ((values - values.mean()) / std).tolist()
+
+
+def make_training_batch(
+    prompt_ids: list[list[int]], completion_ids: list[list[int]], pad_id: int, device: torch.device
+) -> TrainingBatch:
+    lengths = [len(prompt) + len(completion) for prompt, completion in zip(prompt_ids, completion_ids)]
+    width = max(lengths)
+    sequences = torch.full((len(lengths), width), pad_id, dtype=torch.long)
+    mask = torch.zeros((len(lengths), width - 1), dtype=torch.bool)
+    for row, (prompt, completion) in enumerate(zip(prompt_ids, completion_ids)):
+        sequence = prompt + completion
+        sequences[row, : len(sequence)] = torch.tensor(sequence, dtype=torch.long)
+        mask[row, len(prompt) - 1 : lengths[row] - 1] = True
+    return TrainingBatch(sequences.to(device), mask.to(device))
+
+
+def batched_completion_logprobs(
+    logits: torch.Tensor,
+    sequences: torch.Tensor,
+    prompt_lengths: list[int],
+    lengths: list[int],
+) -> torch.Tensor:
+    targets = sequences[:, 1:].unsqueeze(-1)
+    selected = torch.log_softmax(logits.float(), dim=-1).gather(-1, targets).squeeze(-1)
+    masked = torch.zeros_like(selected)
+    for row, (prompt_length, length) in enumerate(zip(prompt_lengths, lengths)):
+        masked[row, prompt_length - 1 : length - 1] = selected[row, prompt_length - 1 : length - 1]
+    return masked
+
+
+def grpo_losses(
+    new_logprobs: torch.Tensor,
+    old_logprobs: torch.Tensor,
+    advantages: torch.Tensor,
+    mask: torch.Tensor,
+    epsilon: float,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    log_ratio = new_logprobs - old_logprobs
+    ratio = log_ratio.exp()
+    surrogate = torch.minimum(ratio * advantages, ratio.clamp(1.0 - epsilon, 1.0 + epsilon) * advantages)
+    mask = mask.bool()
+    denominator = mask.sum().clamp(min=1)
+    loss = -(surrogate * mask).sum() / denominator
+    outside = ((ratio < 1.0 - epsilon) | (ratio > 1.0 + epsilon)) & mask
+    stats = {
+        "mean_ratio": ((ratio * mask).sum() / denominator).item(),
+        "clip_fraction": (outside.sum().item()) / denominator.item(),
+        "approx_kl": (((ratio - 1.0) - log_ratio) * mask).sum().div(denominator).item(),
+    }
+    return loss, stats
 
 
 def completion_logprobs(logits: torch.Tensor, sequence: torch.Tensor, prompt_length: int) -> torch.Tensor:
@@ -202,6 +260,26 @@ def _load_policy(config: MPSConfig, device: torch.device):
     return model, tokenizer
 
 
+def _old_logprobs(
+    model, rollouts: list[Rollout], pad_id: int, device: torch.device
+) -> tuple[TrainingBatch, torch.Tensor]:
+    batch = make_training_batch(
+        [rollout.prompt_ids for rollout in rollouts],
+        [rollout.completion_ids for rollout in rollouts],
+        pad_id,
+        device,
+    )
+    prompt_lengths = [len(rollout.prompt_ids) for rollout in rollouts]
+    lengths = [len(rollout.prompt_ids) + len(rollout.completion_ids) for rollout in rollouts]
+    was_training = model.training
+    model.eval()
+    with torch.no_grad():
+        logits = model(batch.sequences[:, :-1]).logits
+        logprobs = batched_completion_logprobs(logits, batch.sequences, prompt_lengths, lengths)
+    model.train(was_training)
+    return batch, logprobs
+
+
 def train(
     config: MPSConfig,
     *,
@@ -236,24 +314,51 @@ def train(
         task = next(task_cycle)
         rollouts = [sample_completion(model, tokenizer, task, config, device) for _ in range(config.group_size)]
         asyncio.run(_score_rollouts(task, rollouts))
-        advantages = group_advantages([rollout.reward for rollout in rollouts])
+        rewards = [rollout.reward for rollout in rollouts]
+        mean_reward = sum(rewards) / len(rewards)
+        advantages = group_advantages(rewards)
 
-        optimizer.zero_grad()
+        row = {"step": float(step), "reward": mean_reward}
+        reward_std = torch.tensor(rewards).std(unbiased=False).item()
+        row["reward_std"] = reward_std
+        if reward_std == 0:
+            row.update(loss=0.0, clip_fraction=0.0, approx_kl=0.0)
+            metrics.append(row)
+            print(f"Step {step} | Reward {mean_reward:.4f} | skipped (equal rewards)", flush=True)
+            continue
+
+        pad_id = getattr(tokenizer, "pad_token_id", None)
+        if pad_id is None:
+            pad_id = tokenizer.eos_token_id
+        batch, old = _old_logprobs(model, rollouts, pad_id, device)
+        advantage_tensor = torch.tensor(advantages, dtype=torch.float32, device=device).unsqueeze(-1)
+        prompt_lengths = [len(rollout.prompt_ids) for rollout in rollouts]
+        lengths = [len(rollout.prompt_ids) + len(rollout.completion_ids) for rollout in rollouts]
+
         total_loss = 0.0
-        for rollout, advantage in zip(rollouts, advantages):
-            sequence = torch.tensor([rollout.prompt_ids + rollout.completion_ids], dtype=torch.long, device=device)
-            logits = model(sequence[:, :-1]).logits
-            logprobs = completion_logprobs(logits, sequence, len(rollout.prompt_ids))
-            loss = -advantage * logprobs.mean() / config.group_size
+        last_stats = {"clip_fraction": 0.0, "approx_kl": 0.0}
+        for _epoch in range(config.ppo_epochs):
+            optimizer.zero_grad()
+            logits = model(batch.sequences[:, :-1]).logits
+            new = batched_completion_logprobs(logits, batch.sequences, prompt_lengths, lengths)
+            loss, stats = grpo_losses(new, old.detach(), advantage_tensor, batch.completion_mask, config.clip_epsilon)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(trainable, config.max_grad_norm)
+            optimizer.step()
             total_loss += float(loss.detach())
+            last_stats = stats
 
-        torch.nn.utils.clip_grad_norm_(trainable, config.max_grad_norm)
-        optimizer.step()
-        mean_reward = sum(rollout.reward for rollout in rollouts) / len(rollouts)
-        row = {"step": float(step), "reward": mean_reward, "loss": total_loss}
+        row.update(
+            loss=total_loss / config.ppo_epochs,
+            clip_fraction=last_stats["clip_fraction"],
+            approx_kl=last_stats["approx_kl"],
+        )
         metrics.append(row)
-        print(f"Step {step} | Reward {mean_reward:.4f} | Loss {total_loss:.4f}", flush=True)
+        print(
+            f"Step {step} | Reward {mean_reward:.4f} | Loss {row['loss']:.4f}"
+            f" | ClipFrac {row['clip_fraction']:.2f} | KL {row['approx_kl']:.4f}",
+            flush=True,
+        )
         if device.type == "mps":
             torch.mps.empty_cache()
 

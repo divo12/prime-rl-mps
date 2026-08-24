@@ -11,8 +11,9 @@ uv run --project mps mps-rl @ mps/configs/reverse-text.toml
 ```
 
 The example loads `PrimeIntellect/Qwen3-0.6B-Reverse-Text-SFT`, samples four responses per reverse-text task,
-normalizes their rewards within the group, and applies an on-policy policy-gradient
-update. The final LoRA adapter is written to `outputs/mps-reverse-text`.
+normalizes their rewards within the group, and optimizes a PPO-style clipped surrogate over
+`ppo_epochs` passes per batch (GRPO; see `mps/docs/rl-on-mps.md`). The final LoRA adapter is written to
+`outputs/mps-reverse-text`.
 
 Run the MPS check with:
 
