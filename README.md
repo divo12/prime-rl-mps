@@ -69,7 +69,9 @@ With `[model] impl = "auto"` (the default), the trainer selects that custom stac
 
 ### Prerequisites
 
-Currently, you **need at least one NVIDIA GPU to use prime-rl**. If you don't already have access to one, we recommend our [compute platform](https://app.primeintellect.ai) for everything from renting on-demand single GPUs for developing, debugging and small ablations, to [reserving 1000+ GPU clusters](https://app.primeintellect.ai/dashboard/quotes) for production-scale training.
+The production `rl`, `sft`, and `inference` entrypoints require at least one NVIDIA GPU. If you don't already have access to one, we recommend our [compute platform](https://app.primeintellect.ai) for everything from renting on-demand single GPUs for developing, debugging and small ablations, to [reserving 1000+ GPU clusters](https://app.primeintellect.ai/dashboard/quotes) for production-scale training.
+
+Apple Silicon users can run the experimental, single-process [MPS trainer](mps/README.md). It preserves verifiers v1 task loading and reward scoring, but intentionally omits the distributed CUDA/vLLM stack.
 
 ### Quick Setup
 

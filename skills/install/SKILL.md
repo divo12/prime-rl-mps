@@ -35,6 +35,16 @@ When bumping a package past the workspace-wide `exclude-newer = "7 days"` window
 
 ## Optional extras
 
+### Apple Silicon MPS
+
+The production package remains CUDA-only. Use the isolated MPS subproject for the experimental single-process runner:
+
+```bash
+uv run --project mps mps-rl @ mps/configs/reverse-text.toml
+```
+
+It installs from `mps/uv.lock` and does not resolve the root project's CUDA wheels. See `mps/README.md` for scope and limitations.
+
 ### CUDA kernels
 
 Prebuilt wheels, pinned at a release in `[tool.uv.sources]`:
