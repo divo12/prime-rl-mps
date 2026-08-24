@@ -1,0 +1,65 @@
+{
+  "config": {
+    "model": "PrimeIntellect/Qwen3-0.6B-Reverse-Text-SFT",
+    "taskset": "reverse-text",
+    "taskset_args": {},
+    "max_steps": 5,
+    "num_tasks": 32,
+    "group_size": 4,
+    "max_completion_tokens": 128,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "learning_rate": 0.0002,
+    "max_grad_norm": 1.0,
+    "ppo_epochs": 2,
+    "clip_epsilon": 0.2,
+    "dtype": "float16",
+    "lora_rank": 8,
+    "lora_alpha": 16,
+    "seed": 0,
+    "trust_remote_code": false,
+    "output_dir": "outputs/mps-reverse-text"
+  },
+  "metrics": [
+    {
+      "step": 0.0,
+      "reward": 0.20625,
+      "reward_std": 0.35723546147346497,
+      "loss": 0.042207978665828705,
+      "clip_fraction": 0.22267206477732793,
+      "approx_kl": 0.12578628957271576
+    },
+    {
+      "step": 1.0,
+      "reward": 0.3078693051081454,
+      "reward_std": 0.3322611451148987,
+      "loss": 0.4207557886838913,
+      "clip_fraction": 0.18991097922848665,
+      "approx_kl": 0.06223727762699127
+    },
+    {
+      "step": 2.0,
+      "reward": 0.20518867924528303,
+      "reward_std": 0.35539722442626953,
+      "loss": 0.242772176861763,
+      "clip_fraction": 0.10762331838565023,
+      "approx_kl": 0.03093591332435608
+    },
+    {
+      "step": 3.0,
+      "reward": 0.36850572740143295,
+      "reward_std": 0.36888736486434937,
+      "loss": 0.24218902736902237,
+      "clip_fraction": 0.14425427872860636,
+      "approx_kl": 0.01889965496957302
+    },
+    {
+      "step": 4.0,
+      "reward": 0.7951898342352728,
+      "reward_std": 0.018838295713067055,
+      "loss": -0.017854960431577638,
+      "clip_fraction": 0.12264150943396226,
+      "approx_kl": 0.020499346777796745
+    }
+  ]
+}
