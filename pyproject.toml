@@ -19,10 +19,10 @@ dependencies = [
     "torchdata>=0.11.0",
     "transformers==5.6.2",
     "vllm>=0.26.0",
-    "mooncake-transfer-engine>=0.3.10.post2",
+    "mooncake-transfer-engine>=0.3.10.post2 ; sys_platform == 'linux'",
     "wandb>=0.26.1",
     "wandb-workspaces>=0.4.3",
-    "ring-flash-attn>=0.1.8",
+    "ring-flash-attn>=0.1.8 ; sys_platform == 'linux'",
     "prime>=0.6.19",
     "pyzmq>=27.1.0",
     "aiolimiter>=1.2.1",
@@ -35,8 +35,8 @@ dependencies = [
     "torchtitan",
     "verifiers[harbor]>=0.3.1.dev59",
     "renderers",
-    "dion",
-    "tilelang>=0.1.8",
+    "dion ; sys_platform == 'linux'",
+    "tilelang>=0.1.8 ; sys_platform == 'linux'",
     "flash-linear-attention",
     "nvidia-ml-py>=12.575.51",
     "pybase64>=1.4.2",
@@ -65,31 +65,37 @@ prime_rl = "prime_rl.inference.patches:apply_shared_vllm_patches"
 # sm_90, so FA2 is the resolved backend on sm_120 (see `_resolve_attn_impl` in
 # trainer/model.py).
 flash-attn = [
-    "flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.4/flash_attn-2.8.3+cu128torch2.11-cp312-cp312-linux_x86_64.whl ; platform_machine == 'x86_64'",
-    "flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.22/flash_attn-2.8.3+cu128torch2.11-cp312-cp312-linux_aarch64.whl ; platform_machine == 'aarch64'",
+    "flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.4/flash_attn-2.8.3+cu128torch2.11-cp312-cp312-linux_x86_64.whl ; platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.9.22/flash_attn-2.8.3+cu128torch2.11-cp312-cp312-linux_aarch64.whl ; platform_machine == 'aarch64' and sys_platform == 'linux'",
 ]
-flash-attn-3 = ["flash_attn_3"]
+flash-attn-3 = ["flash_attn_3 ; sys_platform == 'linux'"]
 
 flash-attn-cute = [
-    "flash-attn-4",
+    "flash-attn-4 ; sys_platform == 'linux'",
 ]
 disagg = [
-    "deep-ep ; platform_machine == 'x86_64' or platform_machine == 'aarch64'",
-    "deep-gemm",
-    "nixl",
-    "nixl-cu12 ; platform_machine == 'x86_64'",
-    "vllm-router",
+    "deep-ep ; sys_platform == 'linux'",
+    "deep-gemm ; sys_platform == 'linux'",
+    "nixl ; sys_platform == 'linux'",
+    "nixl-cu12 ; platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "vllm-router ; sys_platform == 'linux'",
 ]
 gpt-oss = [
     "kernels",
 ]
 quack = [
-    "quack-kernels>=0.4.1",
+    "quack-kernels>=0.4.1 ; sys_platform == 'linux'",
 ]
 # Prebuilt `prime-kernels` wheels from a release (see the `kernels` skill). Compiled for
 # sm_100a; on other GPUs the package installs fine and reports its kernels unavailable.
 kernels = [
-    "prime-kernels",
+    "prime-kernels ; sys_platform == 'linux'",
+]
+# Apple Silicon inference: vLLM Metal plugin (divo12 fork, MLX compute backend).
+# Builds a native extension from source on first install; requires Xcode CLT.
+# Serve with VLLM_METAL_BUILD_FROM_SOURCE=1 (compiles Metal shaders in-process).
+metal = [
+    "vllm-metal @ git+https://github.com/divo12/vllm-metal@211a1e4 ; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 all = [
     "prime-rl[flash-attn]",
@@ -101,7 +107,7 @@ all = [
 
 [dependency-groups]
 mamba-ssm = [
-    "mamba-ssm>=2.3.0",
+    "mamba-ssm>=2.3.0 ; sys_platform == 'linux'",
 ]
 dev = [
     "ipykernel>=6.29.5",
@@ -123,6 +129,7 @@ no-build-isolation-package = ["flash-attn"]
 environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
     "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 # Override torch's pinned cuDNN to fix Conv3d performance regression (torch 2.9 + cuDNN 9.8-9.14)
 # See: https://github.com/pytorch/pytorch/issues/166122
@@ -168,7 +175,7 @@ version = "0.3.0"
 requires-dist = [
     "grpcio>=1.66.2",
     "huggingface_hub>=0.20.0",
-    "nixl[cu12]",
+    "nixl[cu12] ; sys_platform == 'linux'",
     "numpy>=1.24.0",
     "protobuf>=5.27.0,<7.0.0",
     "pydantic>=2.0.0",
@@ -181,6 +188,9 @@ requires-dist = [
 harbor = "2026-08-11T00:00:00Z"
 # we want latest vllm, remove next patch
 vllm = false
+vllm-metal = false
+# 1.95.x sdists fail to build on macOS (Rust bridge); 1.98.0 (pinned by tau2) ships darwin wheels
+litellm = "2026-08-23T00:00:00Z"
 tokenspeed-mla = false
 fastokens = false
 flash_attn_3 = false
@@ -211,36 +221,49 @@ prime-rl-configs = { path = "packages/prime-rl-configs", editable = true }
 verifiers = { path = "deps/verifiers", editable = true }
 renderers = { path = "deps/renderers", editable = true }
 prime-pydantic-config = { path = "deps/pydantic-config", editable = true }
-torch = { index = "pytorch-cu128" }
-torchvision = { index = "pytorch-cu128" }
-torchaudio = { index = "pytorch-cu128" }
+# CUDA wheels exist for Linux only; Apple Silicon resolves plain PyPI wheels (MPS build).
+torch = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+    { index = "pypi-explicit", marker = "sys_platform == 'darwin'" },
+]
+torchvision = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+    { index = "pypi-explicit", marker = "sys_platform == 'darwin'" },
+]
+torchaudio = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+    { index = "pypi-explicit", marker = "sys_platform == 'darwin'" },
+]
 torchtitan = { git = "https://github.com/pytorch/torchtitan", rev = "23e4dfc" }
-torchao = { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.6.0/torchao-0.17.0+git02105d46c-cp312-cp312-linux_x86_64.whl", marker = "platform_machine == 'x86_64'" }
+torchao = { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.6.0/torchao-0.17.0+git02105d46c-cp312-cp312-linux_x86_64.whl", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" }
 dion = { git = "https://github.com/samsja/dion.git", rev = "d891eeb" }
-flash-attn-4 = { git = "https://github.com/Dao-AILab/flash-attention.git", subdirectory = "flash_attn/cute", rev = "96bd151" }
+flash-attn-4 = { git = "https://github.com/Dao-AILab/flash-attention.git", subdirectory = "flash_attn/cute", rev = "96bd151", marker = "sys_platform == 'linux'" }
 vllm-router = [
-    { url = "https://github.com/PrimeIntellect-ai/router/releases/download/v0.2.0/vllm_router-0.2.0-cp38-abi3-manylinux_2_28_x86_64.whl", marker = "platform_machine == 'x86_64'" },
-    { url = "https://github.com/PrimeIntellect-ai/router/releases/download/v0.2.0/vllm_router-0.2.0-cp38-abi3-manylinux_2_28_aarch64.whl", marker = "platform_machine == 'aarch64'" },
+    { url = "https://github.com/PrimeIntellect-ai/router/releases/download/v0.2.0/vllm_router-0.2.0-cp38-abi3-manylinux_2_28_x86_64.whl", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://github.com/PrimeIntellect-ai/router/releases/download/v0.2.0/vllm_router-0.2.0-cp38-abi3-manylinux_2_28_aarch64.whl", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
 ]
 vllm = [
     { url = "https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0+cu129-cp38-abi3-manylinux_2_28_x86_64.whl", marker = "platform_machine == 'x86_64'" },
-    { url = "https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0+cu129-cp38-abi3-manylinux_2_28_aarch64.whl", marker = "platform_machine == 'aarch64'" },
+    { url = "https://github.com/vllm-project/vllm/releases/download/v0.26.0/vllm-0.26.0+cu129-cp38-abi3-manylinux_2_28_aarch64.whl", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
+    # PyPI has no macOS vLLM wheel; vLLM Metal requires the CPU macOS build (see
+    # vllm-metal's install.sh). 0.27.1 satisfies the vllm>=0.26.0 floor.
+    { url = "https://github.com/vllm-project/vllm/releases/download/v0.27.1/vllm-0.27.1%2Bcpu-cp312-cp312-macosx_11_0_arm64.whl", marker = "sys_platform == 'darwin' and platform_machine == 'arm64'" },
 ]
 deep-ep = [
-    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/deep_ep-1.2.1+29d31c0-cp312-cp312-linux_x86_64.whl", marker = "platform_machine == 'x86_64'" },
-    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/deep_ep-1.1.0+1fd57b0-cp312-cp312-linux_aarch64.whl", marker = "platform_machine == 'aarch64'" },
+    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/deep_ep-1.2.1+29d31c0-cp312-cp312-linux_x86_64.whl", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/deep_ep-1.1.0+1fd57b0-cp312-cp312-linux_aarch64.whl", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
 ]
 deep-gemm = [
-    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/deep_gemm-2.5.0+891d57b-cp312-cp312-linux_x86_64.whl", marker = "platform_machine == 'x86_64'" },
-    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/deep_gemm-2.5.0+891d57b-cp312-cp312-linux_aarch64.whl", marker = "platform_machine == 'aarch64'" },
+    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/deep_gemm-2.5.0+891d57b-cp312-cp312-linux_x86_64.whl", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/deep_gemm-2.5.0+891d57b-cp312-cp312-linux_aarch64.whl", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
 ]
 prime-kernels = [
-    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.8.0/prime_kernels-0.1.0+cu128torch2.11.0-cp312-cp312-linux_x86_64.whl", marker = "platform_machine == 'x86_64'" },
-    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.8.0/prime_kernels-0.1.0+cu128torch2.11.0-cp312-cp312-linux_aarch64.whl", marker = "platform_machine == 'aarch64'" },
+    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.8.0/prime_kernels-0.1.0+cu128torch2.11.0-cp312-cp312-linux_x86_64.whl", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.8.0/prime_kernels-0.1.0+cu128torch2.11.0-cp312-cp312-linux_aarch64.whl", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
 ]
 nixl-cu12 = { url = "https://github.com/PrimeIntellect-ai/prime-rl/releases/download/v0.5.0/nixl_cu12-0.10.1-cp312-cp312-linux_x86_64.whl" }
 flash-linear-attention = { git = "https://github.com/fla-org/flash-linear-attention" }
-flash_attn_3 = { index = "pytorch-cu128-test" }
+flash_attn_3 = { index = "pytorch-cu128-test", marker = "sys_platform == 'linux'" }
 
 [tool.uv.extra-build-dependencies]
 flash-attn = [{ requirement = "torch", match-runtime = true }]
@@ -249,6 +272,11 @@ mamba-ssm = [{ requirement = "torch", match-runtime = true }]
 
 [tool.uv.extra-build-variables]
 flash-attn = { FLASH_ATTENTION_SKIP_CUDA_BUILD = "TRUE" }
+
+[[tool.uv.index]]
+name = "pypi-explicit"
+url = "https://pypi.org/simple"
+explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
